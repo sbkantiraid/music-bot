@@ -45,7 +45,7 @@ FFMPEG_EXECUTABLE = "ffmpeg"  # cambia a "/usr/bin/ffmpeg" si sigue fallando
 ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
 
 
-# ─── Estado por servidor ───────────────────────────────────────────────────────
+# ─── Estado por servidor ──────────────────────────────────────────────────────
 
 class GuildState:
     def __init__(self):
@@ -60,7 +60,7 @@ class GuildState:
         self.current = None
 
 
-# ─── Bot ───────────────────────────────────────────────────────────────────────
+# ─── Bot ────────────────────────────────────────────────────────────
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -107,7 +107,7 @@ async def ensure_voice(ctx: commands.Context) -> discord.VoiceClient | None:
     return vc
 
 
-# ─── Helpers de audio ─────────────────────────────────────────────────────────
+# ─── Helpers de audio ───────────────────────────────────────────────────────
 
 async def fetch_track(query: str) -> list[dict]:
     loop = asyncio.get_event_loop()
@@ -199,7 +199,7 @@ async def play_next(guild: discord.Guild):
     vc.play(source, after=after_play)
 
 
-# ─── Eventos ──────────────────────────────────────────────────────────────────
+# ─── Eventos ──────────────────────────────────────────────────────────
 
 @bot.event
 async def on_ready():
@@ -223,13 +223,7 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
         await vc.disconnect()
 
 
-# ─── Comandos ─────────────────────────────────────────────────────────────────
-
-@bot.command(name="join", aliases=["conectar"])
-async def join(ctx: commands.Context):
-    """Entra al canal de voz del usuario."""
-    await ensure_voice(ctx)
-
+# ─── Comandos ──────────────────────────────────────────────────────────
 
 @bot.command(name="play", aliases=["p", "reproducir"])
 async def play(ctx: commands.Context, *, query: str):
@@ -246,26 +240,33 @@ async def play(ctx: commands.Context, *, query: str):
     if not tracks:
         return await ctx.send("❌ No encontré nada con esa búsqueda.")
 
+    # Añadir todas las canciones a la cola
+    for t in tracks:
+        state.queue.append(t)
+
+    # Mostrar primer canción que se va a reproducir
+    first_track = tracks[0]
     if len(tracks) == 1:
-        state.queue.append(tracks[0])
         embed = discord.Embed(
-            title="➕ Añadido a la cola",
-            description=f"[{tracks[0]['title']}]({tracks[0]['webpage_url']})",
+            title="▶️ Reproduciendo ahora",
+            description=f"[{first_track['title']}]({first_track['webpage_url']})",
             color=0x1DB954,
         )
-        embed.set_thumbnail(url=tracks[0]["thumbnail"])
-        embed.add_field(name="Duración", value=format_duration(tracks[0]["duration"]))
+        embed.set_thumbnail(url=first_track["thumbnail"])
+        embed.add_field(name="Duración", value=format_duration(first_track["duration"]))
         await ctx.send(embed=embed)
     else:
-        for t in tracks:
-            state.queue.append(t)
         embed = discord.Embed(
-            title="📋 Playlist añadida",
-            description=f"**{len(tracks)} canciones** en cola",
+            title="▶️ Reproduciendo ahora",
+            description=f"[{first_track['title']}]({first_track['webpage_url']})",
             color=0x1DB954,
         )
+        embed.set_thumbnail(url=first_track["thumbnail"])
+        embed.add_field(name="Duración", value=format_duration(first_track["duration"]))
+        embed.add_field(name="Playlist", value=f"📋 {len(tracks)} canciones en cola", inline=False)
         await ctx.send(embed=embed)
 
+    # Iniciar reproducción si no hay nada sonando
     if not vc.is_playing() and not vc.is_paused():
         await play_next(ctx.guild)
 
@@ -453,7 +454,7 @@ async def move(ctx: commands.Context, origin: int, destination: int):
     await ctx.send(f"↕️ **{track['title']}** movido a la posición **{destination}**.")
 
 
-# ─── Slash commands ───────────────────────────────────────────────────────────
+# ─── Slash commands ────────────────────────────────────────────────────────
 
 @bot.tree.command(name="play", description="Reproduce una canción o playlist")
 @app_commands.describe(query="URL o nombre de la canción / playlist")
@@ -474,15 +475,24 @@ async def slash_play(interaction: discord.Interaction, query: str):
         vc = await channel.connect()
 
     state = get_state(interaction.guild_id)
-    tracks = await fetch_track(query)
+    
+    async with interaction.client.loop.create_task(asyncio.sleep(0)):
+        tracks = await fetch_track(query)
 
     if not tracks:
         return await interaction.followup.send("❌ No encontré nada.")
 
+    # Añadir todas las canciones a la cola
     for t in tracks:
         state.queue.append(t)
 
-    msg = f"➕ **{tracks[0]['title']}** añadida." if len(tracks) == 1 else f"📋 **{len(tracks)} canciones** añadidas."
+    # Mostrar primer canción que se va a reproducir
+    first_track = tracks[0]
+    if len(tracks) == 1:
+        msg = f"▶️ **{first_track['title']}** reproduciendo ahora"
+    else:
+        msg = f"▶️ **{first_track['title']}** reproduciendo ahora\n📋 {len(tracks)} canciones en cola"
+    
     await interaction.followup.send(msg)
 
     if not vc.is_playing() and not vc.is_paused():
@@ -534,7 +544,7 @@ async def slash_leave(interaction: discord.Interaction):
         await interaction.response.send_message("❌ No estoy en un canal de voz.")
 
 
-# ─── Arranque ─────────────────────────────────────────────────────────────────
+# ─── Arranque ──────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     if not TOKEN:
